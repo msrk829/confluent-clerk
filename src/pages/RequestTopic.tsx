@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
 import { toast } from '@/hooks/use-toast';
+import { requestApi } from '@/services/api';
 
 const RequestTopic = () => {
   const [formData, setFormData] = useState({
@@ -15,24 +16,58 @@ const RequestTopic = () => {
     description: '',
     rationale: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    // TODO: Call API
-    toast({
-      title: 'Request submitted',
-      description: 'Your topic request has been submitted for approval',
-    });
+    if (formData.rationale.length < 10) {
+      toast({
+        title: 'Validation Error',
+        description: 'Business rationale must be at least 10 characters long',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
     
-    // Reset form
-    setFormData({
-      topic_name: '',
-      partitions: '3',
-      replication_factor: '2',
-      description: '',
-      rationale: ''
-    });
+    try {
+      const requestData = {
+        request_type: 'TOPIC' as const,
+        details: {
+          topic_name: formData.topic_name,
+          partitions: parseInt(formData.partitions),
+          replication_factor: parseInt(formData.replication_factor),
+          description: formData.description,
+        },
+        rationale: formData.rationale,
+      };
+
+      await requestApi.createTopicRequest(requestData);
+      
+      toast({
+        title: 'Request submitted successfully',
+        description: 'Your topic request has been submitted for approval',
+      });
+      
+      // Reset form
+      setFormData({
+        topic_name: '',
+        partitions: '3',
+        replication_factor: '2',
+        description: '',
+        rationale: ''
+      });
+    } catch (error) {
+      toast({
+        title: 'Submission failed',
+        description: error instanceof Error ? error.message : 'Failed to submit request',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -120,17 +155,23 @@ const RequestTopic = () => {
                     placeholder="Explain why you need this topic and how it will be used"
                     rows={4}
                     required
+                    className={formData.rationale.length > 0 && formData.rationale.length < 10 ? 'border-red-500' : ''}
                   />
-                  <p className="text-xs text-muted-foreground">
-                    Minimum 10 characters
-                  </p>
+                  <div className="flex justify-between items-center">
+                    <p className={`text-xs ${formData.rationale.length > 0 && formData.rationale.length < 10 ? 'text-red-500' : 'text-muted-foreground'}`}>
+                      Minimum 10 characters required
+                    </p>
+                    <p className={`text-xs ${formData.rationale.length < 10 ? 'text-red-500' : 'text-green-600'}`}>
+                      {formData.rationale.length}/10
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex gap-3">
-                  <Button type="submit" className="flex-1">
-                    Submit Request
+                  <Button type="submit" className="flex-1" disabled={isSubmitting}>
+                    {isSubmitting ? 'Submitting...' : 'Submit Request'}
                   </Button>
-                  <Button type="button" variant="outline" className="flex-1">
+                  <Button type="button" variant="outline" className="flex-1" disabled={isSubmitting}>
                     Cancel
                   </Button>
                 </div>

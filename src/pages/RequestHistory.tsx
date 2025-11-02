@@ -3,10 +3,43 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { requestApi } from '@/services/api';
+import { toast } from '@/hooks/use-toast';
+
+interface Request {
+  id: string;
+  request_type: string;
+  status: string;
+  details: any;
+  rationale: string;
+  created_at: string;
+}
 
 const RequestHistory = () => {
-  // Mock data - will be replaced with API call
-  const requests = [];
+  const navigate = useNavigate();
+  const [requests, setRequests] = useState<Request[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRequests = async () => {
+      try {
+        const data = await requestApi.getUserRequests();
+        setRequests(data as Request[]);
+      } catch (error) {
+        toast({
+          title: 'Failed to load requests',
+          description: error instanceof Error ? error.message : 'Failed to fetch request history',
+          variant: 'destructive',
+        });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRequests();
+  }, []);
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -56,7 +89,12 @@ const RequestHistory = () => {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {requests.length === 0 ? (
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-4"></div>
+                  <p className="text-sm text-muted-foreground">Loading requests...</p>
+                </div>
+              ) : requests.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-12 text-center">
                   <AlertCircle className="w-12 h-12 text-muted-foreground/50 mb-4" />
                   <h3 className="text-lg font-medium mb-2">No requests yet</h3>
@@ -72,28 +110,35 @@ const RequestHistory = () => {
                       <TableHead>Resource</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Submitted</TableHead>
-                      <TableHead>Updated</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {requests.map((request: any) => (
-                      <TableRow key={request.id}>
-                        <TableCell className="flex items-center gap-2">
-                          {getStatusIcon(request.status)}
-                          {request.type}
-                        </TableCell>
-                        <TableCell className="font-medium">{request.resource}</TableCell>
-                        <TableCell>{getStatusBadge(request.status)}</TableCell>
-                        <TableCell>{request.submitted}</TableCell>
-                        <TableCell>{request.updated}</TableCell>
-                        <TableCell>
-                          <button className="text-primary hover:underline text-sm">
-                            View Details
-                          </button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                    {requests.map((request) => {
+                      const resourceName = request.request_type === 'TOPIC' 
+                        ? request.details?.topic_name 
+                        : request.details?.resource_name || 'N/A';
+                      
+                      return (
+                        <TableRow key={request.id}>
+                          <TableCell className="flex items-center gap-2">
+                            {getStatusIcon(request.status)}
+                            {request.request_type}
+                          </TableCell>
+                          <TableCell className="font-medium">{resourceName}</TableCell>
+                          <TableCell>{getStatusBadge(request.status)}</TableCell>
+                          <TableCell>{new Date(request.created_at).toLocaleDateString()}</TableCell>
+                          <TableCell>
+                            <button 
+                              className="text-primary hover:underline text-sm"
+                              onClick={() => navigate(`/requests/${request.id}`)}
+                            >
+                              View Details
+                            </button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                 </Table>
               )}

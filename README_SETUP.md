@@ -95,7 +95,7 @@ LDAP_BIND_DN=cn=admin,dc=example,dc=com
 LDAP_BIND_PASSWORD=admin_password
 
 # Kafka
-KAFKA_BOOTSTRAP_SERVERS=localhost:9092
+KAFKA_BOOTSTRAP_SERVERS=avinashnode.infra.alephys.com:12091,avinashnode.infra.alephys.com:12092
 KAFKA_SECURITY_PROTOCOL=PLAINTEXT
 
 # CORS

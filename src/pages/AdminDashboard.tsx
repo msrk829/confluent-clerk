@@ -1,10 +1,116 @@
+import React, { useState, useEffect } from 'react';
 import Sidebar from '@/components/layout/Sidebar';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Database, Shield, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { requestApi, kafkaApi } from '@/services/api';
+import { useToast } from '@/hooks/use-toast';
+
+interface DashboardStats {
+  pendingRequests: number;
+  totalTopics: number;
+  activeACLs: number;
+  approvedToday: number;
+  totalApproved: number;
+  totalRejected: number;
+  totalPending: number;
+}
+
+interface Request {
+  id: string;
+  user_id: string;
+  request_type: 'TOPIC' | 'ACL';
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  created_at: string;
+  rationale: string;
+  details: any;
+  admin_user_id?: string;
+  rejection_reason?: string;
+}
 
 const AdminDashboard = () => {
+  const [stats, setStats] = useState<DashboardStats>({
+    pendingRequests: 0,
+    totalTopics: 0,
+    activeACLs: 0,
+    approvedToday: 0,
+    totalApproved: 0,
+    totalRejected: 0,
+    totalPending: 0,
+  });
+  const [recentRequests, setRecentRequests] = useState<Request[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, []);
+
+  const fetchDashboardData = async () => {
+    try {
+      setLoading(true);
+      
+      // Fetch all requests to calculate statistics
+      const allRequests = await requestApi.getAllRequests() as Request[];
+      
+      // Calculate statistics
+      const pendingRequests = allRequests.filter(req => req.status === 'PENDING').length;
+      const approvedRequests = allRequests.filter(req => req.status === 'APPROVED');
+      const rejectedRequests = allRequests.filter(req => req.status === 'REJECTED');
+      
+      // Calculate approved today (last 24 hours)
+      const today = new Date();
+      const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+      const approvedToday = approvedRequests.filter(req => 
+        new Date(req.created_at) >= yesterday
+      ).length;
+
+      // Fetch Kafka data
+      let totalTopics = 0;
+      let activeACLs = 0;
+      
+      try {
+        const [topicsResponse, aclsResponse] = await Promise.all([
+          kafkaApi.getTopics(),
+          kafkaApi.getACLs()
+        ]);
+        
+        totalTopics = Array.isArray(topicsResponse) ? topicsResponse.length : 0;
+        activeACLs = Array.isArray(aclsResponse) ? aclsResponse.length : 0;
+      } catch (kafkaError) {
+        console.warn('Failed to fetch Kafka data:', kafkaError);
+        // Keep default values of 0 if Kafka API fails
+      }
+
+      setStats({
+        pendingRequests,
+        totalTopics,
+        activeACLs,
+        approvedToday,
+        totalApproved: approvedRequests.length,
+        totalRejected: rejectedRequests.length,
+        totalPending: pendingRequests,
+      });
+
+      // Set recent requests (last 5 pending requests)
+      const recentPending = allRequests
+        .filter(req => req.status === 'PENDING')
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 5);
+      
+      setRecentRequests(recentPending);
+      
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to fetch dashboard data",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <div className="flex h-screen">
       <Sidebar />
@@ -26,7 +132,7 @@ const AdminDashboard = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">0</p>
+                <p className="text-3xl font-bold">{loading ? '...' : stats.pendingRequests}</p>
                 <p className="text-xs text-muted-foreground mt-1">Awaiting review</p>
               </CardContent>
             </Card>
@@ -39,7 +145,7 @@ const AdminDashboard = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">0</p>
+                <p className="text-3xl font-bold">{loading ? '...' : stats.totalTopics}</p>
                 <p className="text-xs text-muted-foreground mt-1">Across cluster</p>
               </CardContent>
             </Card>
@@ -52,7 +158,7 @@ const AdminDashboard = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">0</p>
+                <p className="text-3xl font-bold">{loading ? '...' : stats.activeACLs}</p>
                 <p className="text-xs text-muted-foreground mt-1">Permissions set</p>
               </CardContent>
             </Card>
@@ -65,7 +171,7 @@ const AdminDashboard = () => {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">0</p>
+                <p className="text-3xl font-bold">{loading ? '...' : stats.approvedToday}</p>
                 <p className="text-xs text-muted-foreground mt-1">Last 24 hours</p>
               </CardContent>
             </Card>
@@ -98,12 +204,44 @@ const AdminDashboard = () => {
                 <CardDescription>Latest audit log entries</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-center py-8 text-muted-foreground">
-                  <div className="text-center">
-                    <AlertCircle className="w-12 h-12 mx-auto mb-2 text-muted-foreground/50" />
-                    <p>No recent activity</p>
+                {loading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex items-center space-x-3 animate-pulse">
+                        <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
+                        <div className="flex-1 space-y-1">
+                          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                          <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                ) : recentRequests.length > 0 ? (
+                  <div className="space-y-4">
+                    {recentRequests.map((request) => (
+                      <div key={request.id} className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-warning/10 rounded-full flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-warning" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                             {request.request_type === 'TOPIC' ? 'Topic Request' : 'ACL Request'}: {request.details?.topic_name || request.details?.resource_name || 'N/A'}
+                           </p>
+                           <p className="text-xs text-muted-foreground">
+                             by {request.user_id} • {new Date(request.created_at).toLocaleDateString()}
+                           </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground">
+                    <div className="text-center">
+                      <AlertCircle className="w-12 h-12 mx-auto mb-2 text-muted-foreground/50" />
+                      <p>No recent activity</p>
+                    </div>
+                  </div>
+                )}
                 <Link to="/admin/audit">
                   <Button variant="outline" className="w-full">
                     View Audit Logs
@@ -125,21 +263,21 @@ const AdminDashboard = () => {
                     <CheckCircle className="w-4 h-4 text-success" />
                     <span className="text-sm">Approved</span>
                   </div>
-                  <span className="text-sm font-medium">0</span>
+                  <span className="text-sm font-medium">{loading ? '...' : stats.totalApproved}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <XCircle className="w-4 h-4 text-destructive" />
                     <span className="text-sm">Rejected</span>
                   </div>
-                  <span className="text-sm font-medium">0</span>
+                  <span className="text-sm font-medium">{loading ? '...' : stats.totalRejected}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Clock className="w-4 h-4 text-warning" />
                     <span className="text-sm">Pending</span>
                   </div>
-                  <span className="text-sm font-medium">0</span>
+                  <span className="text-sm font-medium">{loading ? '...' : stats.totalPending}</span>
                 </div>
               </div>
             </CardContent>

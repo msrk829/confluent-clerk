@@ -4,9 +4,59 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Database, Shield, FileText, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { requestApi } from '@/services/api';
+import apiRequest from '@/services/api';
+
+interface DashboardStats {
+  topicsCount: number;
+  pendingRequestsCount: number;
+  activeAclsCount: number;
+}
 
 const UserDashboard = () => {
   const { user } = useAuth();
+  const [stats, setStats] = useState<DashboardStats>({
+    topicsCount: 0,
+    pendingRequestsCount: 0,
+    activeAclsCount: 0,
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true);
+        
+        // Fetch user requests to count pending ones
+        const userRequests = await requestApi.getUserRequests();
+        const pendingCount = Array.isArray(userRequests) 
+          ? userRequests.filter((req: any) => req.status === 'PENDING').length 
+          : 0;
+
+        // Fetch user topics
+        const topicsResponse = await apiRequest<{topics: any[]}>('/api/user/topics');
+        const topicsCount = topicsResponse?.topics?.length || 0;
+
+        // For now, set ACLs to 0 as we don't have a specific endpoint yet
+        // In a real implementation, this would fetch actual ACL data
+        const activeAclsCount = 0;
+
+        setStats({
+          topicsCount,
+          pendingRequestsCount: pendingCount,
+          activeAclsCount,
+        });
+      } catch (error) {
+        console.error('Error fetching dashboard data:', error);
+        // Keep default values on error
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
 
   return (
     <div className="flex h-screen">
@@ -27,7 +77,9 @@ const UserDashboard = () => {
                 <CardDescription>Topics you have access to</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">0</p>
+                <p className="text-3xl font-bold">
+                  {loading ? '...' : stats.topicsCount}
+                </p>
               </CardContent>
             </Card>
 
@@ -37,7 +89,9 @@ const UserDashboard = () => {
                 <CardDescription>Awaiting approval</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">0</p>
+                <p className="text-3xl font-bold">
+                  {loading ? '...' : stats.pendingRequestsCount}
+                </p>
               </CardContent>
             </Card>
 
@@ -47,7 +101,9 @@ const UserDashboard = () => {
                 <CardDescription>Current permissions</CardDescription>
               </CardHeader>
               <CardContent>
-                <p className="text-3xl font-bold">0</p>
+                <p className="text-3xl font-bold">
+                  {loading ? '...' : stats.activeAclsCount}
+                </p>
               </CardContent>
             </Card>
           </div>

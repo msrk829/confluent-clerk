@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea';
 import { useState } from 'react';
 import { toast } from '@/hooks/use-toast';
+import { requestApi } from '@/services/api';
 
 const RequestACL = () => {
   const [formData, setFormData] = useState({
@@ -17,23 +18,60 @@ const RequestACL = () => {
     host_pattern: '*',
     rationale: ''
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    toast({
-      title: 'ACL request submitted',
-      description: 'Your ACL permission request has been submitted for approval',
-    });
+    if (formData.rationale.length < 10) {
+      toast({
+        title: 'Validation Error',
+        description: 'Business rationale must be at least 10 characters long',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
     
-    setFormData({
-      principal: '',
-      operation: '',
-      resource_type: '',
-      resource_name: '',
-      host_pattern: '*',
-      rationale: ''
-    });
+    try {
+      const requestData = {
+        request_type: 'ACL' as const,
+        details: {
+          principal: formData.principal,
+          operation: formData.operation,
+          resource_type: formData.resource_type,
+          resource_name: formData.resource_name,
+          host_pattern: formData.host_pattern,
+        },
+        rationale: formData.rationale,
+      };
+
+      await requestApi.createACLRequest(requestData);
+      
+      toast({
+        title: 'ACL request submitted successfully',
+        description: 'Your ACL permission request has been submitted for approval',
+      });
+      
+      // Reset form
+      setFormData({
+        principal: '',
+        operation: '',
+        resource_type: '',
+        resource_name: '',
+        host_pattern: '*',
+        rationale: ''
+      });
+    } catch (error) {
+      toast({
+        title: 'Submission failed',
+        description: error instanceof Error ? error.message : 'Failed to submit request',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -157,10 +195,10 @@ const RequestACL = () => {
                 </div>
 
                 <div className="flex gap-3">
-                  <Button type="submit" className="flex-1">
-                    Submit Request
+                  <Button type="submit" className="flex-1" disabled={isSubmitting}>
+                    {isSubmitting ? 'Submitting...' : 'Submit Request'}
                   </Button>
-                  <Button type="button" variant="outline" className="flex-1">
+                  <Button type="button" variant="outline" className="flex-1" disabled={isSubmitting}>
                     Cancel
                   </Button>
                 </div>

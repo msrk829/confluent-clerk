@@ -30,29 +30,24 @@ services:
     environment:
       DATABASE_URL: postgresql://postgres:postgres@db:5432/kafka_admin
       SECRET_KEY: your-secret-key-change-in-production
-      LDAP_SERVER: ldap://ldap:389
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      LDAP_SERVER: ldap://ldapnode.infra.alephys.com:389
+      KAFKA_BOOTSTRAP_SERVERS: avinashnode.infra.alephys.com:12091,avinashnode.infra.alephys.com:12092
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - ./backend:/app
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
-  # React Frontend (for local development)
-  # frontend:
-  #   build:
-  #     context: .
-  #     dockerfile: Dockerfile.frontend
-  #   container_name: kafka_admin_frontend
-  #   ports:
-  #     - "5173:5173"
-  #   volumes:
-  #     - .:/app
-  #     - /app/node_modules
-  #   environment:
-  #     VITE_API_URL: http://localhost:8000
-  #   command: npm run dev -- --host
+  # React Frontend
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: http://localhost:8000
+    container_name: kafka_admin_frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Database, Shield, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { requestApi, kafkaApi } from '@/services/api';
+import { requestApi, kafkaApi, auditApi } from '@/services/api';
 import { useToast } from '@/hooks/use-toast';
 
 interface DashboardStats {
@@ -23,10 +23,23 @@ interface Request {
   request_type: 'TOPIC' | 'ACL';
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
   created_at: string;
+  approved_at?: string;
+  rejected_at?: string;
   rationale: string;
   details: any;
   admin_user_id?: string;
   rejection_reason?: string;
+}
+
+interface AuditLog {
+  id: string;
+  user_id: string;
+  action: string;
+  entity_type: string;
+  entity_id?: string;
+  changes: Record<string, any>;
+  timestamp: string;
+  ip_address?: string | null;
 }
 
 const AdminDashboard = () => {
@@ -40,6 +53,7 @@ const AdminDashboard = () => {
     totalPending: 0,
   });
   const [recentRequests, setRecentRequests] = useState<Request[]>([]);
+  const [recentActivity, setRecentActivity] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
 
@@ -63,7 +77,7 @@ const AdminDashboard = () => {
       const today = new Date();
       const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
       const approvedToday = approvedRequests.filter(req => 
-        new Date(req.created_at) >= yesterday
+        req.approved_at && new Date(req.approved_at) >= yesterday
       ).length;
 
       // Fetch Kafka data
@@ -71,16 +85,19 @@ const AdminDashboard = () => {
       let activeACLs = 0;
       
       try {
-        const [topicsResponse, aclsResponse] = await Promise.all([
+        const [topicsResponse, aclsResponse, auditLogs] = await Promise.all([
           kafkaApi.getTopics(),
-          kafkaApi.getACLs()
+          kafkaApi.getACLs(),
+          auditApi.getLogs({ limit: 5 })
         ]);
-        
-        totalTopics = Array.isArray(topicsResponse) ? topicsResponse.length : 0;
-        activeACLs = Array.isArray(aclsResponse) ? aclsResponse.length : 0;
+
+        totalTopics = (topicsResponse as any)?.topics?.length ?? 0;
+        const aclList = (aclsResponse as any)?.acls ?? [];
+        activeACLs = Array.isArray(aclList) ? aclList.filter((a: any) => (a?.permission || '').toUpperCase() === 'ALLOW').length : 0;
+        setRecentActivity((auditLogs as any[]) || []);
       } catch (kafkaError) {
-        console.warn('Failed to fetch Kafka data:', kafkaError);
-        // Keep default values of 0 if Kafka API fails
+        console.warn('Failed to fetch Kafka data or audit logs:', kafkaError);
+        // Keep default values if APIs fail
       }
 
       setStats({
@@ -93,12 +110,12 @@ const AdminDashboard = () => {
         totalPending: pendingRequests,
       });
 
-      // Set recent requests (last 5 pending requests)
+      // Set recent pending requests (last 5)
       const recentPending = allRequests
         .filter(req => req.status === 'PENDING')
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
         .slice(0, 5);
-      
+
       setRecentRequests(recentPending);
       
     } catch (error) {
@@ -184,12 +201,44 @@ const AdminDashboard = () => {
                 <CardDescription>Latest requests requiring attention</CardDescription>
               </CardHeader>
               <CardContent>
-                <div className="flex items-center justify-center py-8 text-muted-foreground">
-                  <div className="text-center">
-                    <AlertCircle className="w-12 h-12 mx-auto mb-2 text-muted-foreground/50" />
-                    <p>No pending requests</p>
+                {loading ? (
+                  <div className="space-y-3">
+                    {[1, 2, 3].map((i) => (
+                      <div key={i} className="flex items-center space-x-3 animate-pulse">
+                        <div className="w-8 h-8 bg-gray-200 rounded-full"></div>
+                        <div className="flex-1 space-y-1">
+                          <div className="h-4 bg-gray-200 rounded w-3/4"></div>
+                          <div className="h-3 bg-gray-200 rounded w-1/2"></div>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
+                ) : recentRequests.length > 0 ? (
+                  <div className="space-y-4">
+                    {recentRequests.map((request) => (
+                      <div key={request.id} className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-warning/10 rounded-full flex items-center justify-center">
+                          <Clock className="w-4 h-4 text-warning" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {request.request_type === 'TOPIC' ? 'Topic Request' : 'ACL Request'}: {request.details?.topic_name || request.details?.resource_name || 'N/A'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            by {request.user_id} • {new Date(request.created_at).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground">
+                    <div className="text-center">
+                      <AlertCircle className="w-12 h-12 mx-auto mb-2 text-muted-foreground/50" />
+                      <p>No pending requests</p>
+                    </div>
+                  </div>
+                )}
                 <Link to="/admin/requests">
                   <Button variant="outline" className="w-full">
                     View All Requests
@@ -216,20 +265,20 @@ const AdminDashboard = () => {
                       </div>
                     ))}
                   </div>
-                ) : recentRequests.length > 0 ? (
+                ) : recentActivity.length > 0 ? (
                   <div className="space-y-4">
-                    {recentRequests.map((request) => (
-                      <div key={request.id} className="flex items-center space-x-3">
-                        <div className="w-8 h-8 bg-warning/10 rounded-full flex items-center justify-center">
-                          <Clock className="w-4 h-4 text-warning" />
+                    {recentActivity.map((log) => (
+                      <div key={log.id} className="flex items-center space-x-3">
+                        <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                          <CheckCircle className="w-4 h-4 text-primary" />
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">
-                             {request.request_type === 'TOPIC' ? 'Topic Request' : 'ACL Request'}: {request.details?.topic_name || request.details?.resource_name || 'N/A'}
-                           </p>
-                           <p className="text-xs text-muted-foreground">
-                             by {request.user_id} • {new Date(request.created_at).toLocaleDateString()}
-                           </p>
+                            {log.action.replace(/_/g, ' ')}: {log.changes?.topic_name || log.changes?.resource_name || log.entity_id || 'N/A'}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            by {log.user_id} • {new Date(log.timestamp).toLocaleDateString()}
+                          </p>
                         </div>
                       </div>
                     ))}

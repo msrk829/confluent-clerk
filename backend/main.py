@@ -2,11 +2,19 @@
 FastAPI Main Application
 Enterprise Kafka Admin Portal
 """
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,  # Changed to DEBUG to see detailed topic metadata
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 from app.core.config import settings
+from app.services.kafka_service import kafka_service
 from app.api.routes import auth, users, requests, admin, kafka, audit
 from app.db.database import engine
 from app.db import models
@@ -61,11 +69,17 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Detailed health check"""
+    kafka_status = "unknown"
+    try:
+        result = kafka_service.test_connection()
+        kafka_status = "connected" if result.get("success") else f"error: {result.get('error', 'unknown')}"
+    except Exception as e:
+        kafka_status = f"error: {str(e)}"
     return {
         "status": "healthy",
         "database": "connected",
-        "kafka": "not_implemented",
-        "ldap": "not_implemented"
+        "kafka": kafka_status,
+        "ldap": "configured"
     }
 
 

@@ -150,4 +150,43 @@ export const kafkaApi = {
   getTopicConfig: (topicName: string) => apiRequest(`/api/kafka/topics/${topicName}/config`),
 };
 
+// Audit-related API functions
+export const auditApi = {
+  /**
+   * Get audit logs with optional filtering
+   */
+  getLogs: (params: {
+    limit?: number;
+    offset?: number;
+    user_id?: string;
+    action?: string;
+    entity_type?: string;
+    start_date?: string; // ISO string
+    end_date?: string;   // ISO string
+  } = {}) => {
+    const query = new URLSearchParams();
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && `${value}`.length > 0) {
+        query.append(key, `${value}`);
+      }
+    });
+    const qs = query.toString();
+    const endpoint = `/api/audit/logs${qs ? `?${qs}` : ''}`;
+    return apiRequest(endpoint);
+  }
+};
+
+// User-related API functions
+export const userApi = {
+  /**
+   * Get ACLs specific to the authenticated user
+   * Backend optional endpoint: /api/user/acls
+   */
+  getACLs: () => apiRequest('/api/user/acls'),
+  /**
+   * Get topics accessible to the authenticated user
+   */
+  getTopics: () => apiRequest('/api/user/topics'),
+};
+
 export default apiRequest;

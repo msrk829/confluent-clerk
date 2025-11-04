@@ -12,6 +12,7 @@ from app.api.dependencies import get_current_admin_user
 from app.db.models import User
 from app.services.request_service import RequestService
 from app.services.audit_service import AuditService
+from app.services.kafka_service import KafkaService
 
 router = APIRouter()
 
@@ -98,7 +99,73 @@ async def approve_request(
     try:
         request_service = RequestService(db)
         audit_service = AuditService(db)
+        kafka_service = KafkaService()
         
+        # Get the request first to check its details
+        pending_request = request_service.get_request_by_id(request_id)
+        if not pending_request or pending_request.status != "PENDING":
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Request not found or cannot be approved"
+            )
+        
+        # Handle Kafka operations based on request type
+        kafka_result = None
+        if pending_request.request_type == "TOPIC":
+            # Create topic in Kafka
+            details = pending_request.details
+            topic_name = details.get("topic_name")
+            partitions = details.get("partitions", 1)
+            replication_factor = details.get("replication_factor", 1)
+            
+            if not topic_name:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Topic name is required"
+                )
+            
+            kafka_result = kafka_service.create_topic(
+                topic_name=topic_name,
+                num_partitions=partitions,
+                replication_factor=replication_factor
+            )
+            
+        elif pending_request.request_type == "ACL":
+            # Create ACL in Kafka
+            details = pending_request.details
+            principal = details.get("principal")
+            operation = details.get("operation")
+            resource_type = details.get("resource_type")
+            resource_name = details.get("resource_name")
+            host_pattern = details.get("host_pattern", "*")
+            
+            if not all([principal, operation, resource_type, resource_name]):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Principal, operation, resource_type, and resource_name are required for ACL"
+                )
+            
+            kafka_result = kafka_service.create_acl(
+                principal=principal,
+                operation=operation,
+                resource_type=resource_type,
+                resource_name=resource_name,
+                host_pattern=host_pattern
+            )
+        
+        # Check if Kafka operation was successful
+        if kafka_result and not kafka_result.get("success", True):
+            # If it's a "topic already exists" error or ACL authorization error, we can still approve the request
+            error_msg = kafka_result.get("error", "")
+            if ("already exists" not in error_msg.lower() and 
+                "acl authorization" not in error_msg.lower() and
+                "acl creation failed" not in error_msg.lower()):
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to create resource in Kafka: {error_msg}"
+                )
+        
+        # Approve the request in the database
         approved_request = request_service.approve_request(request_id, current_admin.id)
         
         if not approved_request:
@@ -107,17 +174,27 @@ async def approve_request(
                 detail="Request not found or cannot be approved"
             )
         
-        # Log the approval action
+        # Log the approval action with Kafka result
+        audit_details = {
+            "request_type": approved_request.request_type,
+            "approved_by": current_admin.username
+        }
+        
+        if approved_request.request_type == "TOPIC":
+            audit_details["topic_name"] = approved_request.details.get("topic_name")
+        elif approved_request.request_type == "ACL":
+            audit_details["principal"] = approved_request.details.get("principal")
+            audit_details["resource_name"] = approved_request.details.get("resource_name")
+        
+        if kafka_result:
+            audit_details["kafka_result"] = kafka_result
+        
         audit_service.log_action(
             user_id=current_admin.id,
             action="REQUEST_APPROVED",
             resource_type="REQUEST",
             resource_id=str(request_id),
-            details={
-                "request_type": approved_request.request_type,
-                "topic_name": approved_request.details.get("topic_name") if approved_request.details else None,
-                "approved_by": current_admin.username
-            },
+            details=audit_details,
             ip_address=request.client.host if request.client else None
         )
         

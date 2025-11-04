@@ -51,9 +51,26 @@ async def get_user_topics(
 ):
     """Get topics accessible by current user"""
     try:
-        # For now, return all topics (in a real implementation, 
-        # this would filter based on user permissions/ACLs)
+        # List all topics first
         topics = kafka_service.list_topics()
+        
+        # Try to filter based on ACLs for the current user principal
+        try:
+            acl_result = kafka_service.get_acls()
+            if acl_result.get("success"):
+                username = (current_user.username or "").lower()
+                user_topic_names = set()
+                for acl in acl_result.get("acls", []):
+                    principal = str(acl.get("principal", "")).lower()
+                    resource_type = str(acl.get("resource_type", "")).upper()
+                    resource_name = acl.get("resource_name")
+                    if username and username in principal and resource_type == "TOPIC" and resource_name:
+                        user_topic_names.add(resource_name)
+                if user_topic_names:
+                    topics = [t for t in topics if isinstance(t, dict) and t.get("name") in user_topic_names]
+        except Exception:
+            # If ACL retrieval fails, return all topics (non-filtered)
+            pass
         
         # Log the topics access
         audit_service = AuditService(db)
@@ -75,3 +92,34 @@ async def get_user_topics(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get user topics: {str(e)}"
         )
+
+@router.get("/acls")
+async def get_user_acls(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get ACLs specific to the authenticated user"""
+    try:
+        result = kafka_service.get_acls()
+        if not result.get("success"):
+            raise HTTPException(status_code=500, detail=result.get("error", "Failed to retrieve ACLs"))
+        username = (current_user.username or "").lower()
+        filtered = []
+        for acl in result.get("acls", []):
+            principal = str(acl.get("principal", "")).lower()
+            if username and username in principal:
+                filtered.append(acl)
+        # Log ACL access
+        audit_service = AuditService(db)
+        audit_service.log_action(
+            user_id=current_user.id,
+            action="ACL_LIST_ACCESS",
+            resource_type="ACL",
+            resource_id="user",
+            details={"acl_count": len(filtered)}
+        )
+        return {"acls": filtered}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

@@ -32,6 +32,8 @@ services:
       SECRET_KEY: your-secret-key-change-in-production
       LDAP_SERVER: ldap://ldapnode.infra.alephys.com:389
       KAFKA_BOOTSTRAP_SERVERS: avinashnode.infra.alephys.com:12091,avinashnode.infra.alephys.com:12092
+      KAFKA_SECURITY_PROTOCOL: PLAINTEXT
+      ALLOW_ADMIN_FALLBACK: "false"
     depends_on:
       db:
         condition: service_healthy

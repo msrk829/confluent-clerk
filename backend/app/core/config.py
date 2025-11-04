@@ -40,6 +40,9 @@ class Settings(BaseSettings):
     # Kafka Configuration
     KAFKA_BOOTSTRAP_SERVERS: str = "avinashnode.infra.alephys.com:12091,avinashnode.infra.alephys.com:12092"
     KAFKA_SECURITY_PROTOCOL: str = "PLAINTEXT"
+
+    # LDAP fallback configuration
+    ALLOW_ADMIN_FALLBACK: bool = True
     
     @property
     def kafka_bootstrap_servers_list(self) -> List[str]:

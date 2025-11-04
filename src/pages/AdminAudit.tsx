@@ -8,26 +8,29 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FileSearch, RefreshCw, Filter, Calendar, User, Activity } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { auditApi } from '@/services/api';
 
 interface AuditLog {
   id: string;
   timestamp: string;
   user_id: string;
   action: string;
-  resource_type: string;
-  resource_id?: string;
-  details: string;
-  ip_address: string;
-  user_agent: string;
-  status: 'SUCCESS' | 'FAILURE' | 'WARNING';
+  entity_type: string;
+  entity_id?: string;
+  changes?: Record<string, any>;
+  ip_address?: string;
 }
 
 const AdminAudit = () => {
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterAction, setFilterAction] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filterAction, setFilterAction] = useState('');
+  const [filterEntityType, setFilterEntityType] = useState('');
+  const [limit, setLimit] = useState<number>(100);
+  const [offset, setOffset] = useState<number>(0);
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
   const { toast } = useToast();
 
   useEffect(() => {
@@ -37,56 +40,15 @@ const AdminAudit = () => {
   const fetchAuditLogs = async () => {
     try {
       setLoading(true);
-      // TODO: Implement actual API call when audit service is ready
-      // For now, showing placeholder data
-      setAuditLogs([
-        {
-          id: '1',
-          timestamp: new Date().toISOString(),
-          user_id: 'alice@company.com',
-          action: 'LOGIN',
-          resource_type: 'AUTH',
-          details: 'User logged in successfully',
-          ip_address: '192.168.1.100',
-          user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          status: 'SUCCESS'
-        },
-        {
-          id: '2',
-          timestamp: new Date(Date.now() - 300000).toISOString(),
-          user_id: 'bob@company.com',
-          action: 'CREATE_TOPIC_REQUEST',
-          resource_type: 'REQUEST',
-          resource_id: 'req-123',
-          details: 'Created topic request for user-events',
-          ip_address: '192.168.1.101',
-          user_agent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
-          status: 'SUCCESS'
-        },
-        {
-          id: '3',
-          timestamp: new Date(Date.now() - 600000).toISOString(),
-          user_id: 'admin@company.com',
-          action: 'APPROVE_REQUEST',
-          resource_type: 'REQUEST',
-          resource_id: 'req-122',
-          details: 'Approved ACL request for order-processing topic',
-          ip_address: '192.168.1.102',
-          user_agent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          status: 'SUCCESS'
-        },
-        {
-          id: '4',
-          timestamp: new Date(Date.now() - 900000).toISOString(),
-          user_id: 'charlie@company.com',
-          action: 'LOGIN_FAILED',
-          resource_type: 'AUTH',
-          details: 'Failed login attempt - invalid credentials',
-          ip_address: '192.168.1.103',
-          user_agent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36',
-          status: 'FAILURE'
-        }
-      ]);
+      const params: Record<string, string | number> = {};
+      if (limit) params.limit = limit;
+      if (offset) params.offset = offset;
+      if (filterAction) params.action = filterAction;
+      if (filterEntityType) params.entity_type = filterEntityType;
+      if (startDate) params.start_date = startDate;
+      if (endDate) params.end_date = endDate;
+      const logs = await auditApi.getLogs(params as any) as AuditLog[];
+      setAuditLogs(logs || []);
     } catch (error) {
       toast({
         title: "Error",
@@ -102,17 +64,14 @@ const AdminAudit = () => {
     fetchAuditLogs();
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'SUCCESS':
-        return <Badge variant="default" className="bg-green-100 text-green-800 border-green-200">Success</Badge>;
-      case 'FAILURE':
-        return <Badge variant="destructive">Failure</Badge>;
-      case 'WARNING':
-        return <Badge variant="outline" className="text-yellow-600 border-yellow-600">Warning</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
+  const getStatusBadge = (action: string) => {
+    if (action.includes('APPROVE') || action.includes('CREATE')) {
+      return <Badge variant="default" className="bg-green-100 text-green-800 border-green-200">Success</Badge>;
     }
+    if (action.includes('REJECT') || action.includes('FAILED')) {
+      return <Badge variant="destructive">Failure</Badge>;
+    }
+    return <Badge variant="outline">Info</Badge>;
   };
 
   const getActionIcon = (action: string) => {
@@ -133,15 +92,14 @@ const AdminAudit = () => {
   };
 
   const filteredLogs = auditLogs.filter(log => {
+    const detailsStr = JSON.stringify(log.changes || {});
     const matchesSearch = searchTerm === '' || 
-      log.user_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (log.user_id ?? '').toLowerCase().includes(searchTerm.toLowerCase()) ||
       log.action.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      log.details.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesAction = filterAction === 'all' || log.action === filterAction;
-    const matchesStatus = filterStatus === 'all' || log.status === filterStatus;
-    
-    return matchesSearch && matchesAction && matchesStatus;
+      detailsStr.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesAction = !filterAction || log.action === filterAction;
+    const matchesEntity = !filterEntityType || log.entity_type === filterEntityType;
+    return matchesSearch && matchesAction && matchesEntity;
   });
 
   return (
@@ -168,7 +126,7 @@ const AdminAudit = () => {
                   Filters
                 </CardTitle>
                 <CardDescription>
-                  Filter audit logs by search term, action, or status
+                  Filter audit logs by search term, action, entity, date range
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -183,34 +141,56 @@ const AdminAudit = () => {
                   </div>
                   <div>
                     <label className="text-sm font-medium mb-2 block">Action</label>
-                    <Select value={filterAction} onValueChange={setFilterAction}>
+                    <Select value={filterAction} onValueChange={(v) => setFilterAction(v === 'ALL' ? '' : v)}>
                       <SelectTrigger>
                         <SelectValue placeholder="All actions" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Actions</SelectItem>
+                        <SelectItem value="ALL">All Actions</SelectItem>
                         <SelectItem value="LOGIN">Login</SelectItem>
-                        <SelectItem value="LOGIN_FAILED">Login Failed</SelectItem>
-                        <SelectItem value="CREATE_TOPIC_REQUEST">Create Topic Request</SelectItem>
-                        <SelectItem value="CREATE_ACL_REQUEST">Create ACL Request</SelectItem>
-                        <SelectItem value="APPROVE_REQUEST">Approve Request</SelectItem>
-                        <SelectItem value="REJECT_REQUEST">Reject Request</SelectItem>
+                        <SelectItem value="USER_CREATED">User Created</SelectItem>
+                        <SelectItem value="USER_ROLE_UPDATED">User Role Updated</SelectItem>
+                        <SelectItem value="TOPIC_REQUEST_CREATED">Topic Request Created</SelectItem>
+                        <SelectItem value="ACL_REQUEST_CREATED">ACL Request Created</SelectItem>
+                        <SelectItem value="REQUEST_APPROVED">Request Approved</SelectItem>
+                        <SelectItem value="REQUEST_REJECTED">Request Rejected</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                   <div>
-                    <label className="text-sm font-medium mb-2 block">Status</label>
-                    <Select value={filterStatus} onValueChange={setFilterStatus}>
+                    <label className="text-sm font-medium mb-2 block">Entity Type</label>
+                    <Select value={filterEntityType} onValueChange={(v) => setFilterEntityType(v === 'ALL' ? '' : v)}>
                       <SelectTrigger>
-                        <SelectValue placeholder="All statuses" />
+                        <SelectValue placeholder="All entities" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All Statuses</SelectItem>
-                        <SelectItem value="SUCCESS">Success</SelectItem>
-                        <SelectItem value="FAILURE">Failure</SelectItem>
-                        <SelectItem value="WARNING">Warning</SelectItem>
+                        <SelectItem value="ALL">All Entities</SelectItem>
+                        <SelectItem value="USER">User</SelectItem>
+                        <SelectItem value="REQUEST">Request</SelectItem>
+                        <SelectItem value="KAFKA_TOPICS">Kafka Topics</SelectItem>
+                        <SelectItem value="ACL">ACL</SelectItem>
                       </SelectContent>
                     </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">Start Date</label>
+                    <Input type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-2 block">End Date</label>
+                    <Input type="datetime-local" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Limit</label>
+                      <Input type="number" min={1} max={1000} value={limit} onChange={(e) => setLimit(Number(e.target.value))} />
+                    </div>
+                    <div>
+                      <label className="text-sm font-medium mb-2 block">Offset</label>
+                      <Input type="number" min={0} value={offset} onChange={(e) => setOffset(Number(e.target.value))} />
+                    </div>
                   </div>
                 </div>
               </CardContent>
@@ -240,7 +220,7 @@ const AdminAudit = () => {
                         <TableHead>Timestamp</TableHead>
                         <TableHead>User</TableHead>
                         <TableHead>Action</TableHead>
-                        <TableHead>Resource</TableHead>
+                        <TableHead>Entity</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>IP Address</TableHead>
                         <TableHead>Details</TableHead>
@@ -264,16 +244,16 @@ const AdminAudit = () => {
                           </TableCell>
                           <TableCell>
                             <div>
-                              <div className="font-medium">{log.resource_type}</div>
-                              {log.resource_id && (
-                                <div className="text-sm text-muted-foreground font-mono">{log.resource_id}</div>
+                              <div className="font-medium">{log.entity_type}</div>
+                              {log.entity_id && (
+                                <div className="text-sm text-muted-foreground font-mono">{log.entity_id}</div>
                               )}
                             </div>
                           </TableCell>
-                          <TableCell>{getStatusBadge(log.status)}</TableCell>
-                          <TableCell className="font-mono text-sm">{log.ip_address}</TableCell>
-                          <TableCell className="max-w-xs truncate" title={log.details}>
-                            {log.details}
+                          <TableCell>{getStatusBadge(log.action)}</TableCell>
+                          <TableCell className="font-mono text-sm">{log.ip_address || '—'}</TableCell>
+                          <TableCell className="max-w-xs truncate" title={JSON.stringify(log.changes || {})}>
+                            {JSON.stringify(log.changes || {})}
                           </TableCell>
                         </TableRow>
                       ))}

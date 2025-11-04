@@ -30,6 +30,7 @@ interface ACL {
 const AdminKafka = () => {
   const [topics, setTopics] = useState<Topic[]>([]);
   const [acls, setAcls] = useState<ACL[]>([]);
+  const [aclError, setAclError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [topicSearchTerm, setTopicSearchTerm] = useState('');
   const [aclSearchTerm, setAclSearchTerm] = useState('');
@@ -37,11 +38,9 @@ const AdminKafka = () => {
   // Pagination state
   const [topicsCurrentPage, setTopicsCurrentPage] = useState(1);
   const [aclsCurrentPage, setAclsCurrentPage] = useState(1);
-  const itemsPerPage = 3; // Reduced to force pagination with current topics // Set to 10 for better pagination with 70+ topics
+  const itemsPerPage = 10; // Set to 10 for better pagination with 70+ topics
   
-  // Configure dialog state
-  const [selectedTopic, setSelectedTopic] = useState<Topic | null>(null);
-  const [configureDialogOpen, setConfigureDialogOpen] = useState(false);
+  // Configure dialog state removed: we'll use per-row Dialog triggers
   
   const { toast } = useToast();
 
@@ -68,11 +67,18 @@ const AdminKafka = () => {
       
       // Fetch real ACLs from Kafka API
       console.log('AdminKafka: Calling kafkaApi.getACLs()...');
-      const aclsResponse = await kafkaApi.getACLs() as { acls: ACL[] };
+      const aclsResponse = await kafkaApi.getACLs() as any;
       console.log('AdminKafka: ACLs response:', aclsResponse);
       
-      if (aclsResponse.acls) {
-        setAcls(aclsResponse.acls);
+      if (aclsResponse?.success === false) {
+        setAclError(aclsResponse?.message || aclsResponse?.error || 'Failed to retrieve ACLs');
+        setAcls([]);
+      } else if (aclsResponse?.acls) {
+        setAclError(null);
+        setAcls(aclsResponse.acls as ACL[]);
+      } else {
+        setAclError(null);
+        setAcls([]);
       }
       
     } catch (error) {
@@ -93,12 +99,7 @@ const AdminKafka = () => {
     fetchKafkaData();
   };
 
-  const handleConfigureTopic = (topic: Topic) => {
-    console.log('AdminKafka: Configure button clicked for topic:', topic.name);
-    setSelectedTopic(topic);
-    setConfigureDialogOpen(true);
-    console.log('AdminKafka: Dialog should be open now, configureDialogOpen:', true);
-  };
+  // Configure handler removed; per-row DialogTrigger handles opening
 
   // Filter topics based on search term
   const filteredTopics = useMemo(() => {
@@ -125,18 +126,6 @@ const AdminKafka = () => {
   const topicsEndIndex = topicsStartIndex + itemsPerPage;
   const paginatedTopics = filteredTopics.slice(topicsStartIndex, topicsEndIndex);
 
-  // Debug logging for pagination
-  console.log('AdminKafka Pagination Debug:', {
-    totalTopics: topics.length,
-    filteredTopics: filteredTopics.length,
-    itemsPerPage,
-    topicsCurrentPage,
-    topicsTotalPages,
-    topicsStartIndex,
-    topicsEndIndex,
-    paginatedTopicsLength: paginatedTopics.length
-  });
-
   // Pagination logic for ACLs
   const aclsTotalPages = Math.ceil(filteredAcls.length / itemsPerPage);
   const aclsStartIndex = (aclsCurrentPage - 1) * itemsPerPage;
@@ -151,6 +140,21 @@ const AdminKafka = () => {
   useEffect(() => {
     setAclsCurrentPage(1);
   }, [aclSearchTerm]);
+
+  // Clamp current pages when total pages change (e.g., after filtering or data refresh)
+  useEffect(() => {
+    setTopicsCurrentPage((page) => {
+      const total = Math.max(topicsTotalPages, 1);
+      return Math.min(Math.max(page, 1), total);
+    });
+  }, [topicsTotalPages]);
+
+  useEffect(() => {
+    setAclsCurrentPage((page) => {
+      const total = Math.max(aclsTotalPages, 1);
+      return Math.min(Math.max(page, 1), total);
+    });
+  }, [aclsTotalPages]);
 
   return (
     <div className="flex h-screen bg-background">
@@ -212,7 +216,10 @@ const AdminKafka = () => {
                     </div>
 
                     {loading ? (
-                      <div className="text-center py-8">Loading topics...</div>
+                      <div className="flex items-center justify-center py-8">
+                        <RefreshCw className="w-6 h-6 animate-spin mr-2" />
+                        Loading topics...
+                      </div>
                     ) : filteredTopics.length === 0 ? (
                       <div className="text-center py-8 text-muted-foreground">
                         {topicSearchTerm ? 'No topics match your search' : 'No topics found'}
@@ -234,20 +241,83 @@ const AdminKafka = () => {
                                 <TableRow key={topic.name}>
                                   <TableCell className="font-mono">{topic.name}</TableCell>
                                   <TableCell>
-                                    <Badge variant="outline">{topic.partitions}</Badge>
+                                    <Badge variant="outline">{topic.partitions || topic.configs?.["partitions"] || "N/A"}</Badge>
                                   </TableCell>
                                   <TableCell>
-                                    <Badge variant="outline">{topic.replication_factor}</Badge>
+                                    <Badge variant="outline">{topic.replication_factor || topic.configs?.["replication.factor"] || "N/A"}</Badge>
                                   </TableCell>
                                   <TableCell>
-                                    <Button 
-                                      variant="outline" 
-                                      size="sm"
-                                      onClick={() => handleConfigureTopic(topic)}
-                                    >
-                                      <Settings className="w-4 h-4 mr-1" />
-                                      Configure
-                                    </Button>
+                                    <Dialog>
+                                      <DialogTrigger asChild>
+                                        <Button 
+                                          variant="outline" 
+                                          size="sm"
+                                        >
+                                          <Settings className="w-4 h-4 mr-1" />
+                                          Configure
+                                        </Button>
+                                      </DialogTrigger>
+                                      <DialogContent className="max-w-2xl">
+                                        <DialogHeader>
+                                          <DialogTitle>Configure Topic: {topic.name}</DialogTitle>
+                                          <DialogDescription>
+                                            View and modify topic configuration settings
+                                          </DialogDescription>
+                                        </DialogHeader>
+                                        <div className="space-y-4">
+                                          <div className="grid grid-cols-2 gap-4">
+                                            <div>
+                                              <label className="text-sm font-medium">Topic Name</label>
+                                              <Input value={topic.name} disabled />
+                                            </div>
+                                            <div>
+                                              <label className="text-sm font-medium">Partitions</label>
+                                              <Input value={topic.partitions} disabled />
+                                            </div>
+                                            <div>
+                                              <label className="text-sm font-medium">Replication Factor</label>
+                                              <Input value={topic.replication_factor} disabled />
+                                            </div>
+                                          </div>
+                                          {topic.configs && Object.keys(topic.configs).length > 0 && (
+                                            <div>
+                                              <label className="text-sm font-medium mb-2 block">Topic Configurations</label>
+                                              <div className="border rounded-md p-4 max-h-60 overflow-y-auto">
+                                                <Table>
+                                                  <TableHeader>
+                                                    <TableRow>
+                                                      <TableHead>Configuration Key</TableHead>
+                                                      <TableHead>Value</TableHead>
+                                                    </TableRow>
+                                                  </TableHeader>
+                                                  <TableBody>
+                                                    {Object.entries(topic.configs).map(([key, value]) => (
+                                                      <TableRow key={key}>
+                                                        <TableCell className="font-mono text-sm">{key}</TableCell>
+                                                        <TableCell className="font-mono text-sm">{value}</TableCell>
+                                                      </TableRow>
+                                                    ))}
+                                                  </TableBody>
+                                                </Table>
+                                              </div>
+                                            </div>
+                                          )}
+                                          <div className="flex justify-end space-x-2">
+                                            <Button variant="outline" onClick={() => {
+                                              const closeButton = document.querySelector('[data-state="open"] button[aria-label="Close"]');
+                                              if (closeButton) {
+                                                (closeButton as HTMLButtonElement).click();
+                                              }
+                                            }}>
+                                              Close
+                                            </Button>
+                                            <Button disabled>
+                                              Save Changes
+                                            </Button>
+                                          </div>
+                                        </div>
+                                      </DialogContent>
+                                    </Dialog>
                                   </TableCell>
                                 </TableRow>
                               ))}
@@ -255,19 +325,10 @@ const AdminKafka = () => {
                           </Table>
                         </div>
                         
-                        {/* DEBUG: Always show this div */}
-                        <div className="bg-red-100 p-4 mt-4 border border-red-300">
-                          <p>DEBUG INFO:</p>
-                          <p>Total topics: {topics.length}</p>
-                          <p>Filtered topics: {filteredTopics.length}</p>
-                          <p>Paginated topics: {paginatedTopics.length}</p>
-                          <p>Current page: {topicsCurrentPage}</p>
-                          <p>Total pages: {topicsTotalPages}</p>
-                          <p>Items per page: {itemsPerPage}</p>
-                        </div>
+                        {/* Debug info removed for production cleanliness */}
                         
                         {/* Topics Pagination */}
-                        {true && (
+                        {filteredTopics.length > itemsPerPage && (
                           <div className="flex items-center justify-between mt-4">
                             <div className="text-sm text-muted-foreground">
                               Showing {topicsStartIndex + 1} to {Math.min(topicsEndIndex, filteredTopics.length)} of {filteredTopics.length} topics
@@ -315,6 +376,11 @@ const AdminKafka = () => {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
+                    {aclError && (
+                      <div className="mb-4 p-3 border border-yellow-200 bg-yellow-50 text-yellow-800 rounded">
+                        {aclError}
+                      </div>
+                    )}
                     {/* Search Input for ACLs */}
                     <div className="mb-4">
                       <div className="relative">
@@ -384,7 +450,7 @@ const AdminKafka = () => {
                         </div>
                         
                         {/* ACLs Pagination */}
-                        {true && (
+                        {filteredAcls.length > itemsPerPage && (
                           <div className="flex items-center justify-between mt-4">
                             <div className="text-sm text-muted-foreground">
                               Showing {aclsStartIndex + 1} to {Math.min(aclsEndIndex, filteredAcls.length)} of {filteredAcls.length} ACLs
@@ -443,67 +509,7 @@ const AdminKafka = () => {
           </div>
         </main>
       </div>
-
-      {/* Configure Topic Dialog */}
-      <Dialog open={configureDialogOpen} onOpenChange={setConfigureDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Configure Topic: {selectedTopic?.name}</DialogTitle>
-            <DialogDescription>
-              View and modify topic configuration settings
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="text-sm font-medium">Topic Name</label>
-                <Input value={selectedTopic?.name || ''} disabled />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Partitions</label>
-                <Input value={selectedTopic?.partitions || ''} disabled />
-              </div>
-              <div>
-                <label className="text-sm font-medium">Replication Factor</label>
-                <Input value={selectedTopic?.replication_factor || ''} disabled />
-              </div>
-            </div>
-            
-            {selectedTopic?.configs && Object.keys(selectedTopic.configs).length > 0 && (
-              <div>
-                <label className="text-sm font-medium mb-2 block">Topic Configurations</label>
-                <div className="border rounded-md p-4 max-h-60 overflow-y-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Configuration Key</TableHead>
-                        <TableHead>Value</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {Object.entries(selectedTopic.configs).map(([key, value]) => (
-                        <TableRow key={key}>
-                          <TableCell className="font-mono text-sm">{key}</TableCell>
-                          <TableCell className="font-mono text-sm">{value}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-            )}
-            
-            <div className="flex justify-end space-x-2">
-              <Button variant="outline" onClick={() => setConfigureDialogOpen(false)}>
-                Close
-              </Button>
-              <Button disabled>
-                Save Changes
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Per-row dialog implementation above; global dialog removed */}
     </div>
   );
 };

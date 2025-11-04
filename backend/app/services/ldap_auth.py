@@ -66,7 +66,7 @@ class LDAPAuthService:
             print(f"🔍 LDAP AUTH: LDAP Exception for user {username}: {str(e)}")
             logger.error(f"LDAP authentication error for user {username}: {str(e)}")
             # Fallback for admin user when LDAP server is not available
-            if username.lower() == "admin" and password:
+            if settings.ALLOW_ADMIN_FALLBACK and username.lower() == "admin" and password:
                 print(f"🔍 LDAP AUTH: Using fallback authentication for admin user")
                 logger.warning(f"LDAP server unavailable, using fallback authentication for admin user")
                 fallback_result = {
@@ -83,7 +83,7 @@ class LDAPAuthService:
             print(f"🔍 LDAP AUTH: General Exception for user {username}: {str(e)}")
             logger.error(f"Unexpected error during LDAP authentication for user {username}: {str(e)}")
             # Fallback for admin user when LDAP server is not available
-            if username.lower() == "admin" and password:
+            if settings.ALLOW_ADMIN_FALLBACK and username.lower() == "admin" and password:
                 print(f"🔍 LDAP AUTH: Using fallback authentication for admin user (general exception)")
                 logger.warning(f"LDAP server error, using fallback authentication for admin user")
                 fallback_result = {

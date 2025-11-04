@@ -83,11 +83,11 @@ const RequestDetails = () => {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium text-gray-700">Partition Count</label>
-              <p className="mt-1 text-sm text-gray-900">{request.details?.partition_count || 'N/A'}</p>
+              <p className="mt-1 text-sm text-gray-900">{request.details?.partitions ?? request.details?.partition_count ?? 'N/A'}</p>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700">Replication Factor</label>
-              <p className="mt-1 text-sm text-gray-900">{request.details?.replication_factor || 'N/A'}</p>
+              <p className="mt-1 text-sm text-gray-900">{request.details?.replication_factor ?? 'N/A'}</p>
             </div>
           </div>
           <div>
@@ -109,8 +109,8 @@ const RequestDetails = () => {
               <p className="mt-1 text-sm text-gray-900">{request.details?.resource_type || 'N/A'}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">Permission Type</label>
-              <p className="mt-1 text-sm text-gray-900">{request.details?.permission_type || 'N/A'}</p>
+              <label className="text-sm font-medium text-gray-700">Operation</label>
+              <p className="mt-1 text-sm text-gray-900">{request.details?.operation || 'N/A'}</p>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -121,6 +121,12 @@ const RequestDetails = () => {
             <div>
               <label className="text-sm font-medium text-gray-700">Principal</label>
               <p className="mt-1 text-sm text-gray-900">{request.details?.principal || 'N/A'}</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="text-sm font-medium text-gray-700">Host Pattern</label>
+              <p className="mt-1 text-sm text-gray-900">{request.details?.host_pattern || '*'}</p>
             </div>
           </div>
         </div>

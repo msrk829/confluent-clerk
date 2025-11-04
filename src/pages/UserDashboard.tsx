@@ -5,8 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Database, Shield, FileText, ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useState, useEffect } from 'react';
-import { requestApi } from '@/services/api';
-import apiRequest from '@/services/api';
+import { requestApi, kafkaApi, userApi } from '@/services/api';
 
 interface DashboardStats {
   topicsCount: number;
@@ -34,13 +33,31 @@ const UserDashboard = () => {
           ? userRequests.filter((req: any) => req.status === 'PENDING').length 
           : 0;
 
-        // Fetch user topics
-        const topicsResponse = await apiRequest<{topics: any[]}>('/api/user/topics');
+        // Fetch user topics (ACL-filtered on backend if available)
+        const topicsResponse = await userApi.getTopics() as { topics?: any[] };
         const topicsCount = topicsResponse?.topics?.length || 0;
 
-        // For now, set ACLs to 0 as we don't have a specific endpoint yet
-        // In a real implementation, this would fetch actual ACL data
-        const activeAclsCount = 0;
+        // Populate ACL count by filtering ACL list for current user
+        let activeAclsCount = 0;
+        try {
+          // Prefer backend user-specific ACL endpoint if available
+          let aclsResponse: any;
+          try {
+            aclsResponse = await userApi.getACLs();
+          } catch {
+            // Fallback to cluster ACLs (admin protected in backend); if accessible, filter client-side
+            aclsResponse = await kafkaApi.getACLs();
+          }
+          const acls = (aclsResponse as any)?.acls || [];
+          const username = (user?.username || '').toLowerCase();
+          activeAclsCount = acls.filter((acl: any) => {
+            const principal = (acl.principal || '').toLowerCase();
+            return username && principal.includes(username);
+          }).length;
+        } catch (aclErr) {
+          // Keep default 0 on error
+          console.warn('Failed to fetch ACLs for user dashboard:', aclErr);
+        }
 
         setStats({
           topicsCount,
